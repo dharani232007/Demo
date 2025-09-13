@@ -1,27 +1,3 @@
-import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import { Hospital, Plus, Trash2, User, Clock } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
-
-interface Doctor {
-  id: string;
-  name: string;
-  department: string;
-  availableFrom: string;
-  availableTo: string;
-  avgServingTime: number;
-}
-
-const departments = [
-  "Cardiology", "Pediatrics", "Gynecology", "Orthopedics", 
-  "Neurology", "Dermatology", "Ophthalmology", "General Medicine"
-];
 
 const RegisterHospital = () => {
   const { toast } = useToast();
@@ -30,6 +6,8 @@ const RegisterHospital = () => {
   const [phone, setPhone] = useState("");
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isRegistered, setIsRegistered] = useState(false);
+  const [doctorsWithCodes, setDoctorsWithCodes] = useState<DoctorWithCodes[]>([]);
 
   const addDoctor = () => {
     const newDoctor: Doctor = {
@@ -53,6 +31,35 @@ const RegisterHospital = () => {
     setDoctors(docs => docs.filter(doc => doc.id !== id));
   };
 
+  const generateEntryCode = () => {
+    return Math.random().toString(36).substring(2, 8).toUpperCase();
+  };
+
+  const generateQRCode = async (doctorData: Doctor, entryCode: string) => {
+    const qrData = JSON.stringify({
+      hospitalName,
+      doctorName: doctorData.name,
+      department: doctorData.department,
+      entryCode,
+      hospitalId: Date.now().toString()
+    });
+    
+    try {
+      const qrCodeDataUrl = await QRCode.toDataURL(qrData, {
+        width: 256,
+        margin: 2,
+        color: {
+          dark: '#000000',
+          light: '#FFFFFF'
+        }
+      });
+      return qrCodeDataUrl;
+    } catch (error) {
+      console.error('Error generating QR code:', error);
+      return '';
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -67,15 +74,162 @@ const RegisterHospital = () => {
 
     setLoading(true);
     
-    // Simulate API call
-    setTimeout(() => {
-      toast({
-        title: "Hospital Registered Successfully!",
-        description: "QR codes and admin credentials have been generated for all doctors.",
-      });
+    // Generate codes and QR codes for all doctors
+    try {
+      const doctorsWithCodesData: DoctorWithCodes[] = await Promise.all(
+        doctors.map(async (doctor) => {
+          const entryCode = generateEntryCode();
+          const qrCodeDataUrl = await generateQRCode(doctor, entryCode);
+          return {
+            ...doctor,
+            entryCode,
+            qrCodeDataUrl
+          };
+        })
+      );
+
+      // Simulate API call
+      setTimeout(() => {
+        setDoctorsWithCodes(doctorsWithCodesData);
+        setIsRegistered(true);
+        setLoading(false);
+        toast({
+          title: "Hospital Registered Successfully!",
+          description: "QR codes and entry codes have been generated for all doctors.",
+        });
+      }, 2000);
+    } catch (error) {
+      console.error('Error during registration:', error);
       setLoading(false);
-    }, 2000);
+      toast({
+        title: "Registration Failed",
+        description: "An error occurred during registration. Please try again.",
+        variant: "destructive"
+      });
+    }
   };
+
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      toast({
+        title: "Copied!",
+        description: `${label} copied to clipboard.`,
+      });
+    });
+  };
+
+  const downloadQRCode = (dataUrl: string, doctorName: string) => {
+    const link = document.createElement('a');
+    link.download = `${doctorName.replace(/\s+/g, '_')}_QR_Code.png`;
+    link.href = dataUrl;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  if (isRegistered) {
+    return (
+      <div className="min-h-screen bg-background py-8">
+        <div className="container mx-auto px-4 max-w-6xl">
+          <div className="text-center mb-8">
+            <CheckCircle2 className="h-16 w-16 text-green-500 mx-auto mb-4" />
+            <h1 className="text-3xl font-bold mb-2 text-green-600">Registration Successful!</h1>
+            <p className="text-muted-foreground mb-4">
+              Your hospital "{hospitalName}" has been registered successfully.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Below are the QR codes and entry codes for each doctor. Save them securely.
+            </p>
+          </div>
+
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {doctorsWithCodes.map((doctor) => (
+              <Card key={doctor.id} className="shadow-card">
+                <CardHeader className="text-center">
+                  <CardTitle className="text-lg">{doctor.name}</CardTitle>
+                  <CardDescription>{doctor.department}</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* QR Code */}
+                  <div className="flex justify-center">
+                    <div className="bg-white p-4 rounded-lg shadow-inner">
+                      <img 
+                        src={doctor.qrCodeDataUrl} 
+                        alt={`QR Code for ${doctor.name}`}
+                        className="w-32 h-32"
+                      />
+                    </div>
+                  </div>
+                  
+                  {/* Entry Code */}
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">Entry Code</Label>
+                    <div className="flex items-center gap-2">
+                      <Input 
+                        value={doctor.entryCode} 
+                        readOnly 
+                        className="font-mono text-center text-lg font-bold"
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => copyToClipboard(doctor.entryCode, "Entry code")}
+                      >
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => downloadQRCode(doctor.qrCodeDataUrl, doctor.name)}
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Download QR
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => copyToClipboard(doctor.entryCode, "Entry code")}
+                    >
+                      <Copy className="h-4 w-4 mr-2" />
+                      Copy Code
+                    </Button>
+                  </div>
+
+                  {/* Doctor Details */}
+                  <div className="text-xs text-muted-foreground space-y-1 pt-2 border-t">
+                    <p>Available: {doctor.availableFrom} - {doctor.availableTo}</p>
+                    <p>Avg. Time: {doctor.avgServingTime} minutes</p>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          <div className="text-center mt-8">
+            <Button 
+              onClick={() => {
+                setIsRegistered(false);
+                setHospitalName("");
+                setAddress("");
+                setPhone("");
+                setDoctors([]);
+                setDoctorsWithCodes([]);
+              }}
+            >
+              Register Another Hospital
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background py-8">
